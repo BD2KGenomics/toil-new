@@ -1,11 +1,14 @@
 import errno
 import logging
 import os
+import hashlib
 from abc import ABC, abstractmethod
 
+from toil.lib.checksum import ChecksumError
 from toil.lib.threading import ExceptionalThread
 
 log = logging.getLogger(__name__)
+
 
 class WritablePipe(ABC):
     """
@@ -83,8 +86,8 @@ class WritablePipe(ABC):
     def _reader(self):
         with os.fdopen(self.readable_fh, 'rb') as readable:
             # TODO: If the reader somehow crashes here, both threads might try
-            # to close readable_fh.  Fortunately we don't do anything that
-            # should be able to fail here.
+            #  to close readable_fh.  Fortunately we don't do anything that
+            #  should be able to fail here.
             self.readable_fh = None  # signal to parent thread that we've taken over
             self.readFrom(readable)
             self.reader_done = True
@@ -117,7 +120,7 @@ class WritablePipe(ABC):
     def __exit__(self, exc_type, exc_val, exc_tb):
         # Closeing the writable end will send EOF to the readable and cause the reader thread
         # to finish.
-        # TODO: Can close() fail? If so, whould we try and clean up after the reader?
+        # TODO: Can close() fail? If so, would we try and clean up after the reader?
         self.writable.close()
         try:
             if self.thread is not None:
@@ -261,6 +264,7 @@ class ReadablePipe(ABC):
                 # already an exception in the main thread
                 raise
 
+
 class ReadableTransformingPipe(ReadablePipe):
     """
     A pipe which is constructed around a readable stream, and which provides a
@@ -292,8 +296,6 @@ class ReadableTransformingPipe(ReadablePipe):
     See also: :class:`toil.lib.misc.WriteWatchingStream`.
 
     """
-
-    
     def __init__(self, source, encoding=None, errors=None):
         """
         :param str encoding: the name of the encoding used to encode the file. Encodings are the same
@@ -319,3 +321,38 @@ class ReadableTransformingPipe(ReadablePipe):
 
     def writeTo(self, writable):
         self.transform(self.source, writable)
+
+
+class HashingPipe(ReadableTransformingPipe):
+    """
+    Class which checksums all the data read through it. If it
+    reaches EOF and the checksum isn't correct, raises ChecksumError.
+
+    Assumes info actually has a checksum.
+    """
+    def __init__(self, source, encoding=None, errors=None, checksum_to_verify=None):
+        """
+        :param str encoding: the name of the encoding used to encode the file. Encodings are the same
+                as for encode(). Defaults to None which represents binary mode.
+
+        :param str errors: an optional string that specifies how encoding errors are to be handled. Errors
+                are the same as for open(). Defaults to 'strict' when an encoding is specified.
+        """
+        super(HashingPipe, self).__init__(source=source, encoding=encoding, errors=errors)
+        self.checksum_to_verify = checksum_to_verify
+
+    def transform(self, readable, writable):
+        hash_object = hashlib.sha1()
+        contents = readable.read(1024 * 1024)
+        while contents != b'':
+            hash_object.update(contents)
+            try:
+                writable.write(contents)
+            except BrokenPipeError:
+                # Read was stopped early by user code.
+                # Can't check the checksum.
+                return
+            contents = readable.read(1024 * 1024)
+        final_computed_checksum = f'sha1${hash_object.hexdigest()}'
+        if not self.checksum_to_verify == final_computed_checksum:
+            raise ChecksumError(f'Checksum mismatch. Expected: {self.checksum_to_verify} Actual: {final_computed_checksum}')

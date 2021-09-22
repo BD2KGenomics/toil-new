@@ -1,7 +1,6 @@
 import logging
 import os
 import random
-import shutil
 import subprocess
 import sys
 import typing
@@ -9,11 +8,6 @@ import typing
 from typing import Iterator, Union, List, Optional
 
 logger = logging.getLogger(__name__)
-
-
-def printq(msg: str, quiet: bool) -> None:
-    if not quiet:
-        print(msg)
 
 
 def truncExpBackoff() -> Iterator[float]:

@@ -103,7 +103,7 @@ class CachingFileStore(AbstractFileStore):
     finish when the job's actual state after running is committed back to the
     job store.
 
-    Internaly, manages caching using a database. Each node has its own
+    Internally, manages caching using a database. Each node has its own
     database, shared between all the workers on the node. The database contains
     several tables:
 
@@ -500,7 +500,6 @@ class CachingFileStore(AbstractFileStore):
         for row in self.cur.execute('SELECT * FROM refs'):
             logger.debug('Ref record: %s', str(row))
 
-
         for row in self.cur.execute('SELECT TOTAL(files.size) FROM refs INNER JOIN files ON refs.file_id = files.id WHERE refs.job_id = ? AND refs.state != ?',
             (self.jobID, 'mutable')):
             # Sum up all the sizes of our referenced files, then subtract that from how much we came in with
@@ -577,7 +576,7 @@ class CachingFileStore(AbstractFileStore):
             # Clean up
             os.unlink(cachedFile)
             os.rmdir(destDir)
-            self.jobStore.deleteFile(emptyID)
+            self.jobStore.delete_file(emptyID)
         else:
             # Caching is only ever free with the file job store
             free = 0
@@ -1820,16 +1819,16 @@ class CachingFileStore(AbstractFileStore):
                 # the job wrapper is completed.
                 self.jobDesc.filesToDelete = list(self.filesToDelete)
                 # Complete the job
-                self.jobStore.update(self.jobDesc)
+                self.jobStore.update_job(self.jobDesc)
                 # Delete any remnant jobs
-                list(map(self.jobStore.delete, self.jobsToDelete))
+                list(map(self.jobStore.delete_job, self.jobsToDelete))
                 # Delete any remnant files
-                list(map(self.jobStore.deleteFile, self.filesToDelete))
+                list(map(self.jobStore.delete_file, self.filesToDelete))
                 # Remove the files to delete list, having successfully removed the files
                 if len(self.filesToDelete) > 0:
                     self.jobDesc.filesToDelete = []
                     # Update, removing emptying files to delete
-                    self.jobStore.update(self.jobDesc)
+                    self.jobStore.update_job(self.jobDesc)
         except:
             self._terminateEvent.set()
             raise
@@ -1839,7 +1838,7 @@ class CachingFileStore(AbstractFileStore):
     @classmethod
     def shutdown(cls, dir_):
         """
-        :param dir_: The workflow diorectory for the node, which is used as the
+        :param dir_: The workflow directory for the node, which is used as the
                      cache directory, containing cache state database. Job
                      local temp directories will be removed due to their
                      appearance in the database.

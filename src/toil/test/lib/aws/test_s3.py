@@ -1,4 +1,5 @@
 # Copyright (C) 2021 Michael R. Crusoe
+# Copyright (C) 2015-2021 Regents of the University of California
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,13 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import logging
-import os
 import uuid
-from typing import Optional
 
-from toil.jobStores.aws.jobStore import AWSJobStore
-from toil.lib.aws.utils import create_s3_bucket
-from toil.lib.ec2 import establish_boto3_session
+from typing import Optional, List
+
+from toil.lib.aws.s3 import create_bucket, delete_bucket, get_s3_bucket_region, bucket_exists
+from toil.lib.aws.credentials import resource
 from toil.test import ToilTest, needs_aws_s3
 
 logger = logging.getLogger(__name__)
@@ -30,34 +30,33 @@ class S3Test(ToilTest):
     """Confirm the workarounds for us-east-1."""
 
     from mypy_boto3_s3 import S3ServiceResource
-    from mypy_boto3_s3.service_resource import Bucket
 
     s3_resource: Optional[S3ServiceResource]
-    bucket: Optional[Bucket]
+    buckets: List[str]
 
     @classmethod
     def setUpClass(cls) -> None:
         super(S3Test, cls).setUpClass()
-        session = establish_boto3_session(region_name="us-east-1")
-        cls.s3_resource = session.resource("s3", region_name="us-east-1")
-        cls.bucket = None
+        cls.s3_resource = None
+        cls.buckets = []
 
-    def test_create_bucket(self) -> None:
-        """Test bucket creation for us-east-1."""
-        bucket_name = f"toil-s3test-{uuid.uuid4()}"
-        assert self.s3_resource
-        S3Test.bucket = create_s3_bucket(self.s3_resource, bucket_name, "us-east-1")
-        S3Test.bucket.wait_until_exists()
-        owner_tag = os.environ.get("TOIL_OWNER_TAG")
-        if owner_tag:
-            bucket_tagging = self.s3_resource.BucketTagging(bucket_name)
-            bucket_tagging.put(
-                Tagging={"TagSet": [{"Key": "Owner", "Value": owner_tag}]}
-            )
-        self.assertTrue(AWSJobStore.getBucketRegion, "us-east-1")
+    def test_create_delete_bucket(self) -> None:
+        """Test bucket creation and deletion for us-west-2 and us-east-1 (which is special)."""
+        for region in ['us-west-2', 'us-east-1']:
+            self.s3_resource = resource("s3", region_name=region)
+            bucket = f"toil-s3test-{uuid.uuid4()}-{region}"
+            self.buckets.append(bucket)
+
+            with self.subTest(f'Test bucket creation in {region}.'):
+                create_bucket(self.s3_resource, bucket)
+                self.assertTrue(get_s3_bucket_region(self.s3_resource, bucket), region)
+
+            with self.subTest(f'Test bucket deletion in {region}.'):
+                delete_bucket(self.s3_resource, bucket)
+                self.assertFalse(bucket_exists(self.s3_resource, bucket))
 
     @classmethod
     def tearDownClass(cls) -> None:
-        if cls.bucket:
-            AWSJobStore._delete_bucket(cls.bucket)
+        for bucket in cls.buckets:
+            delete_bucket(resource('s3'), bucket)
         super().tearDownClass()

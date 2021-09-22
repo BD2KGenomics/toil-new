@@ -615,21 +615,17 @@ class hidden:
 
                 expectedBytes = valueDict[value] * 1024 * 1024
                 cacheInfoBytes = toCall[value]()
-
-                RealtimeLogger.info('Got %d for %s; expected %d', cacheInfoBytes, value, expectedBytes)
-
-                assert cacheInfoBytes == expectedBytes, 'Testing %s: Expected ' % value + \
-                                                  '%s but got %s.' % (expectedBytes, cacheInfoBytes)
+                assert cacheInfoBytes == expectedBytes, 'Testing %s: Expected %s but got %s.' % (value, expectedBytes, cacheInfoBytes)
 
         @slow
         def testAsyncWriteWithCaching(self):
             """
             Ensure the Async Writing of files happens as expected.  The first Job forcefully
-            modifies the cache size to 1GB. The second asks for 1GB of disk and  writes a 900MB
+            modifies the cache size to 1GB. The second asks for 1GB of disk and writes a 900MB
             file into cache then rewrites it to the job store triggering an async write since the
             two unique jobstore IDs point to the same local file.  Also, the second write is not
             cached since the first was written to cache, and there "isn't enough space" to cache the
-            second.  Imediately assert that the second write isn't cached, and is being
+            second.  Immediately assert that the second write isn't cached, and is being
             asynchronously written to the job store.
 
             Attempting to get the file from the jobstore should not fail.
@@ -1014,10 +1010,9 @@ class hidden:
                 else:
                     if len(writtenFiles) == 0:
                         continue
-                    else:
-                        fsID, rdelFileSize = random.choice(list(writtenFiles.items()))
-                        rdelRandVal = random.random()
-                        fileWasCached = job.fileStore.fileIsCached(fsID)
+                    fsID, rdelFileSize = random.choice(list(writtenFiles.items()))
+                    rdelRandVal = random.random()
+                    fileWasCached = job.fileStore.fileIsCached(fsID)
                     if randVal < 0.66:  # Read
                         RealtimeLogger.info('Reading a file with size %d and previous cache status %s: %s', rdelFileSize, str(fileWasCached), fsID)
                         if rdelRandVal <= 0.5:  # Read as mutable, uncached
@@ -1337,9 +1332,9 @@ class hidden:
             logger.debug('Got file contents: %s', text)
 
 
-
 class NonCachingFileStoreTestWithFileJobStore(hidden.AbstractNonCachingFileStoreTest):
     jobStoreType = 'file'
+
 
 @pytest.mark.timeout(1000)
 class CachingFileStoreTestWithFileJobStore(hidden.AbstractCachingFileStoreTest):

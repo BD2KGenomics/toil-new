@@ -41,8 +41,7 @@ class ColumnWidths:
                 self.setWidth(category, field, 8)
 
     def title(self, category: str) -> int:
-        """ Return the total printed length of this category item.
-        """
+        """Return the total printed length of this category item."""
         return sum([self.getWidth(category, x) for x in self.fields])
 
     def getWidth(self, category: str, field: str ) -> int:
@@ -60,7 +59,8 @@ class ColumnWidths:
 
 
 def padStr(s: str, field: Optional[int] = None) -> str:
-    """Pad the beginning of a string with spaces, if necessary."""
+    """Pad the beginning of a string with spaces, if necessary.
+    """
     if field is None or len(s) >= field:
         return s
     else:
@@ -68,7 +68,8 @@ def padStr(s: str, field: Optional[int] = None) -> str:
 
 
 def prettyMemory(k: float, field: Optional[int] = None, isBytes: bool = False) -> str:
-    """Given input k as kilobytes, return a nicely formatted string."""
+    """Given input k as kilobytes, return a nicely formatted string.
+    """
     if isBytes:
         k /= 1024
     if k < 1024:
@@ -87,7 +88,7 @@ def prettyMemory(k: float, field: Optional[int] = None, isBytes: bool = False) -
 
 
 def prettyTime(t: float, field: Optional[int] = None) -> str:
-    """ Given input t as seconds, return a nicely formatted string.
+    """Given input t as seconds, return a nicely formatted string.
     """
     from math import floor
     pluralDict = {True: "s", False: ""}
@@ -127,7 +128,8 @@ def prettyTime(t: float, field: Optional[int] = None) -> str:
 
 
 def reportTime(t: float, options: Namespace, field: Optional[int] = None) -> str:
-    """Given t seconds, report back the correct format as string."""
+    """Given t seconds, report back the correct format as string.
+    """
     if options.pretty:
         return prettyTime(t, field=field)
     elif field is not None:
@@ -136,7 +138,8 @@ def reportTime(t: float, options: Namespace, field: Optional[int] = None) -> str
 
 
 def reportMemory(k: float, options: Namespace, field: Optional[int] = None, isBytes: bool = False) -> str:
-    """Given k kilobytes, report back the correct format as string."""
+    """Given k kilobytes, report back the correct format as string.
+    """
     if options.pretty:
         return prettyMemory(int(k), field=field, isBytes=isBytes)
     else:
@@ -149,7 +152,8 @@ def reportMemory(k: float, options: Namespace, field: Optional[int] = None, isBy
 
 
 def reportNumber(n: float, field: Optional[int] = None) -> str:
-    """Given n an integer, report back the correct format as string."""
+    """Given n an integer, report back the correct format as string.
+    """
     return "%*g" % (field, n) if field else "%g" % n
 
 
@@ -227,6 +231,7 @@ def sprintTag(key: str, tag: Expando, options: Namespace, columnWidths: Optional
     out_str += tag_str + "\n"
     return out_str
 
+
 def decorateTitle(title: str, options: Namespace) -> str:
     """ Add a marker to TITLE if the TITLE is sorted on.
     """
@@ -234,6 +239,7 @@ def decorateTitle(title: str, options: Namespace) -> str:
         return "%s*" % title
     else:
         return title
+
 
 def decorateSubHeader(title: str, columnWidths: ColumnWidths, options: Namespace) -> str:
     """ Add a marker to the correct field if the TITLE is sorted on.
@@ -324,6 +330,7 @@ def reportPrettyData(root: Expando, worker: List[Job], job: List[Job], job_types
         out_str += " %s\n" % t.name
         out_str += sprintTag(t.name, t, options, columnWidths=columnWidths)
     return out_str
+
 
 
 def computeColumnWidths(job_types: List[Any], worker: List[Job], job: List[Job], options: Expando) -> ColumnWidths:
@@ -451,7 +458,7 @@ def getStats(jobStore: AbstractJobStore) -> Expando:
 
     aggregateObject = Expando()
     callBack = partial(aggregateStats, aggregateObject=aggregateObject)
-    jobStore.readStatsAndLogging(callBack, readAll=True)
+    jobStore.read_logs(callBack, readAll=True)
     return aggregateObject
 
 

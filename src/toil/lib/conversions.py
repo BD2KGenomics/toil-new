@@ -4,7 +4,23 @@ Also contains general conversion functions
 """
 
 import math
-from typing import Optional, SupportsInt, Tuple
+import urllib.parse
+
+from typing import Optional, SupportsInt, Tuple, List
+
+KIB = 1024
+MIB = 1024 ** 2
+GIB = 1024 ** 3
+TIB = 1024 ** 4
+PIB = 1024 ** 5
+EIB = 1024 ** 6
+
+KB = 1000
+MB = 1000 ** 2
+GB = 1000 ** 3
+TB = 1000 ** 4
+PB = 1000 ** 5
+EB = 1000 ** 6
 
 # See https://en.wikipedia.org/wiki/Binary_prefix
 BINARY_PREFIXES = ['ki', 'mi', 'gi', 'ti', 'pi', 'ei', 'kib', 'mib', 'gib', 'tib', 'pib', 'eib']
@@ -15,30 +31,30 @@ VALID_PREFIXES = BINARY_PREFIXES + DECIMAL_PREFIXES
 def bytes_in_unit(unit: str = 'B') -> int:
     num_bytes = 1
     if unit.lower() in ['ki', 'kib']:
-        num_bytes = 1 << 10
+        num_bytes = KIB
     if unit.lower() in ['mi', 'mib']:
-        num_bytes = 1 << 20
+        num_bytes = MIB
     if unit.lower() in ['gi', 'gib']:
-        num_bytes = 1 << 30
+        num_bytes = GIB
     if unit.lower() in ['ti', 'tib']:
-        num_bytes = 1 << 40
+        num_bytes = TIB
     if unit.lower() in ['pi', 'pib']:
-        num_bytes = 1 << 50
+        num_bytes = PIB
     if unit.lower() in ['ei', 'eib']:
-        num_bytes = 1 << 60
+        num_bytes = EIB
 
     if unit.lower() in ['k', 'kb']:
-        num_bytes = 1000
+        num_bytes = KB
     if unit.lower() in ['m', 'mb']:
-        num_bytes = 1000 ** 2
+        num_bytes = MB
     if unit.lower() in ['g', 'gb']:
-        num_bytes = 1000 ** 3
+        num_bytes = GB
     if unit.lower() in ['t', 'tb']:
-        num_bytes = 1000 ** 4
+        num_bytes = TB
     if unit.lower() in ['p', 'pb']:
-        num_bytes = 1000 ** 5
+        num_bytes = PB
     if unit.lower() in ['e', 'eb']:
-        num_bytes = 1000 ** 6
+        num_bytes = EB
     return num_bytes
 
 
@@ -89,7 +105,20 @@ def bytes2human(n: SupportsInt) -> str:
     value = convert_units(n, "b", unit)
     return f'{value:.1f} {unit}'
 
-#General Conversions
+
+def modify_url(url: str, remove: List[str]) -> str:
+    """
+    Given a valid URL string, split out the params, remove any offending
+    params in 'remove', and return the cleaned URL.
+    """
+    scheme, netloc, path, query, fragment = urllib.parse.urlsplit(url)
+    params = urllib.parse.parse_qs(query)
+    for param_key in remove:
+        if param_key in params:
+            del params[param_key]
+    query = urllib.parse.urlencode(params, doseq=True)
+    return urllib.parse.urlunsplit((scheme, netloc, path, query, fragment))
+
 
 def hms_duration_to_seconds(hms: str) -> float: 
     """

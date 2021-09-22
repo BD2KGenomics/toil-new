@@ -358,6 +358,7 @@ class Requirer:
     def preemptable(self, val):
          self._requirementOverrides['preemptable'] = self._parseResource('preemptable', val)
 
+
 class JobDescription(Requirer):
     """
     Stores all the information that the Toil Leader ever needs to know about a
@@ -923,7 +924,7 @@ class CheckpointJobDescription(JobDescription):
             else:
                 self.command = self.checkpoint
 
-            jobStore.update(self) # Update immediately to ensure that checkpoint
+            jobStore.update_job(self) # Update immediately to ensure that checkpoint
             # is made before deleting any remaining successors
 
             if self.childIDs or self.followOnIDs or self.serviceTree:
@@ -935,14 +936,14 @@ class CheckpointJobDescription(JobDescription):
                 def recursiveDelete(jobDesc):
                     # Recursive walk the stack to delete all remaining jobs
                     for otherJobID in jobDesc.successorsAndServiceHosts():
-                        if jobStore.exists(otherJobID):
-                            recursiveDelete(jobStore.load(otherJobID))
+                        if jobStore.job_exists(otherJobID):
+                            recursiveDelete(jobStore.load_job(otherJobID))
                         else:
                             logger.debug("Job %s has already been deleted", otherJobID)
                     if jobDesc.jobStoreID != self.jobStoreID:
                         # Delete everything under us except us.
                         logger.debug("Checkpoint is deleting old successor job: %s", jobDesc.jobStoreID)
-                        jobStore.delete(jobDesc.jobStoreID)
+                        jobStore.delete_job(jobDesc.jobStoreID)
                         successorsDeleted.append(jobDesc.jobStoreID)
                 recursiveDelete(self)
 
@@ -950,7 +951,7 @@ class CheckpointJobDescription(JobDescription):
                 self.clearSuccessorsAndServiceHosts()
 
                 # Update again to commit the removal of successors.
-                jobStore.update(self)
+                jobStore.update_job(self)
         return successorsDeleted
 
 class Job:
@@ -2007,7 +2008,7 @@ class Job:
             fake = self.jobStoreID
 
             # Replace it with a real ID
-            jobStore.assignID(self.description)
+            jobStore.assign_job_id(self.description)
 
             # Make sure the JobDescription can do its JobStore-related setup.
             self.description.onRegistration(jobStore)
@@ -2151,7 +2152,7 @@ class Job:
         # Set up to save last job first, so promises flow the right way
         ordering.reverse()
 
-        logger.info("Saving graph of %d jobs, %d new", len(allJobs), len(fakeToReal))
+        logger.debug("Saving graph of %d jobs, %d new", len(allJobs), len(fakeToReal))
 
         # Make sure we're the root
         assert ordering[-1] == self
@@ -2187,9 +2188,9 @@ class Job:
                 for serviceBatch in job.description.serviceHostIDsInBatches():
                     for serviceID in serviceBatch:
                         if serviceID in self._registry:
-                            jobStore.create(self._registry[serviceID].description)
+                            jobStore.create_job(self._registry[serviceID].description)
                 if job != self or saveSelf:
-                    jobStore.create(job.description)
+                    jobStore.create_job(job.description)
 
     def saveAsRootJob(self, jobStore):
         """
@@ -2764,7 +2765,7 @@ class ServiceHostJob(Job):
             logger.debug("Removing the start jobStoreID to indicate that establishment of the service")
             assert self.description.startJobStoreID != None
             if fileStore.jobStore.fileExists(self.description.startJobStoreID):
-                fileStore.jobStore.deleteFile(self.description.startJobStoreID)
+                fileStore.jobStore.delete_file(self.description.startJobStoreID)
             assert not fileStore.jobStore.fileExists(self.description.startJobStoreID)
 
             #Now block until we are told to stop, which is indicated by the removal

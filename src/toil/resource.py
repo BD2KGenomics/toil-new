@@ -77,7 +77,7 @@ class Resource(namedtuple('Resource', ('name', 'pathHash', 'url', 'contentHash')
         contentHash = hashlib.md5()
         # noinspection PyProtectedMember
         with cls._load(leaderPath) as src:
-            with jobStore.writeSharedFileStream(sharedFileName=pathHash, isProtected=False) as dst:
+            with jobStore.writeSharedFileStream(sharedFileName=pathHash) as dst:
                 userScript = src.read()
                 contentHash.update(userScript)
                 dst.write(userScript)
@@ -89,7 +89,7 @@ class Resource(namedtuple('Resource', ('name', 'pathHash', 'url', 'contentHash')
     def refresh(self, jobStore):
         return type(self)(name=self.name,
                           pathHash=self.pathHash,
-                          url=jobStore.getSharedPublicUrl(sharedFileName=self.pathHash),
+                          url=jobStore.getSharedPublicUrl(file_id=self.pathHash),
                           contentHash=self.contentHash)
 
     @classmethod
@@ -419,7 +419,7 @@ class ModuleDescriptor(namedtuple('ModuleDescriptor', ('dirPath', 'name', 'fromV
             dirPath = os.path.abspath(os.path.sep.join(filePath))
         absPrefix = os.path.abspath(sys.prefix)
         inVenv = inVirtualEnv()
-        logger.debug("Module dir is %s, our prefix is %s, virtualenv: %s", dirPath, absPrefix, inVenv)
+        # logger.debug("Module dir is %s, our prefix is %s, virtualenv: %s", dirPath, absPrefix, inVenv)
         if not os.path.isdir(dirPath):
             raise Exception('Bad directory path %s for module %s. Note that hot-deployment does not support .egg-link files yet, or scripts located in the root directory.' % (dirPath, name))
         fromVirtualEnv = inVenv and dirPath.startswith(absPrefix)

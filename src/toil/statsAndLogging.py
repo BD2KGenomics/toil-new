@@ -167,22 +167,23 @@ class StatsAndLogging:
                 # we may have multiple jobs per worker
                 jobNames = logs.names
                 messages = logs.messages
-                cls.logWithFormatting(jobNames[0], messages,
+                cls.logWithFormatting(jobNames[0],
+                                      messages,
                                       message='Received Toil worker log. Disable debug level logging to hide this output')
                 cls.writeLogFiles(jobNames, messages, config=config)
 
         while True:
             # This is a indirect way of getting a message to the thread to exit
             if stop.is_set():
-                jobStore.readStatsAndLogging(callback)
+                jobStore.read_logs(callback)
                 break
-            if jobStore.readStatsAndLogging(callback) == 0:
+            if jobStore.read_logs(callback) == 0:
                 time.sleep(0.5)  # Avoid cycling too fast
 
         # Finish the stats file
         text = json.dumps(dict(total_time=str(time.time() - startTime),
                                total_clock=str(get_total_cpu_time() - startClock)), ensure_ascii=True)
-        jobStore.writeStatsAndLogging(text)
+        jobStore.write_logs(bytes(text, 'utf-8'))
 
     def check(self) -> None:
         """
@@ -281,7 +282,7 @@ def suppress_exotic_logging(local_logger: str) -> None:
     environment when this is run, and so we create the logger and set the level preemptively.
     """
     never_suppress = ['toil', '__init__', '__main__', 'toil-rt', 'cwltool']
-    always_suppress = ['boto3', 'boto', 'botocore']  # ensure we suppress even before instantiated
+    always_suppress = ['boto3', 'boto', 'botocore', 's3transfer']  # ensure we suppress even before instantiated
 
     top_level_loggers: List[str] = []
 

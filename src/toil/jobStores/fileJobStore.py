@@ -24,6 +24,7 @@ import tempfile
 import time
 import uuid
 from contextlib import contextmanager
+from typing import Optional
 
 from toil.fileStores import FileID
 from toil.job import TemporaryID
@@ -107,10 +108,15 @@ class FileJobStore(AbstractJobStore):
         self.moveExports = config.moveExports
         super(FileJobStore, self).initialize(config)
 
-    def resume(self):
+    def resume(self, sse_key_path: Optional[str] = None):
         if not os.path.isdir(self.jobStoreDir):
             raise NoSuchJobStoreException(self.jobStoreDir)
         super(FileJobStore, self).resume()
+
+    def configure_encryption(self, sse_key_path: Optional[str] = None):
+        # TODO: Implement encryption for the file job store
+        if sse_key_path:
+            raise NotImplementedError('The Toil jobstore only implements encryption for AWS and Google.')
 
     def destroy(self):
         if os.path.exists(self.jobStoreDir):
@@ -121,7 +127,7 @@ class FileJobStore(AbstractJobStore):
     # existence of jobs
     ##########################################
 
-    def assignID(self, jobDescription):
+    def assign_job_id(self, jobDescription):
         # Get the job's name. We want to group jobs with the same name together.
         # This will be e.g. the function name for wrapped-function jobs.
         # Make sure to render it filename-safe
@@ -134,13 +140,13 @@ class FileJobStore(AbstractJobStore):
 
         jobDescription.jobStoreID = self._getJobIdFromDir(absJobDir)
 
-    def create(self, jobDescription):
+    def create_job(self, jobDescription):
         if hasattr(self, "_batchedUpdates") and self._batchedUpdates is not None:
             # Save it later
             self._batchedUpdates.append(jobDescription)
         else:
             # Save it now
-            self.update(jobDescription)
+            self.update_job(jobDescription)
         return jobDescription
 
     @contextmanager
@@ -148,7 +154,7 @@ class FileJobStore(AbstractJobStore):
         self._batchedUpdates = []
         yield
         for jobDescription in self._batchedUpdates:
-            self.update(jobDescription)
+            self.update_job(jobDescription)
         self._batchedUpdates = None
 
     def _waitForExists(self, jobStoreID, maxTries=35, sleepTime=1):
@@ -185,7 +191,7 @@ class FileJobStore(AbstractJobStore):
             time.sleep(sleepTime)
         return False
 
-    def exists(self, jobStoreID):
+    def job_exists(self, jobStoreID):
         return os.path.exists(self._getJobFileName(jobStoreID))
 
     def getPublicUrl(self, jobStoreFileID):
@@ -202,7 +208,7 @@ class FileJobStore(AbstractJobStore):
             raise NoSuchFileException(sharedFileName)
         return 'file:' + jobStorePath
 
-    def load(self, jobStoreID):
+    def load_job(self, jobStoreID):
         self._checkJobStoreIdExists(jobStoreID)
         # Load a valid version of the job
         jobFile = self._getJobFileName(jobStoreID)
@@ -220,7 +226,7 @@ class FileJobStore(AbstractJobStore):
             job.setupJobAfterFailure()
         return job
 
-    def update(self, job):
+    def update_job(self, job):
         assert job.jobStoreID is not None, f"Tried to update job {job} without an ID"
         assert not isinstance(job.jobStoreID, TemporaryID), f"Tried to update job {job} without an assigned ID"
 
@@ -238,10 +244,10 @@ class FileJobStore(AbstractJobStore):
         # This should be atomic for the file system
         os.rename(self._getJobFileName(job.jobStoreID) + ".new", self._getJobFileName(job.jobStoreID))
 
-    def delete(self, jobStoreID):
+    def delete_job(self, jobStoreID):
         # The jobStoreID is the relative path to the directory containing the job,
         # removing this directory deletes the job.
-        if self.exists(jobStoreID):
+        if self.job_exists(jobStoreID):
             # Remove the job-associated files in need of cleanup, which may or
             # may not live under the job's directory.
             robust_rmtree(self._getJobFilesCleanupDir(jobStoreID))
@@ -259,8 +265,8 @@ class FileJobStore(AbstractJobStore):
                     # This is a job instance directory
                     jobId = self._getJobIdFromDir(os.path.join(tempDir, i))
                     try:
-                        if self.exists(jobId):
-                            yield self.load(jobId)
+                        if self.job_exists(jobId):
+                            yield self.load_job(jobId)
                     except NoSuchJobException:
                         # An orphaned job may leave an empty or incomplete job file which we can safely ignore
                         pass
@@ -510,7 +516,7 @@ class FileJobStore(AbstractJobStore):
         # Make a complete copy.
         atomic_copy(jobStoreFilePath, localFilePath, executable=executable)
 
-    def deleteFile(self, jobStoreFileID):
+    def delete_file(self, jobStoreFileID):
         if not self.fileExists(jobStoreFileID):
             return
         os.remove(self._getFilePathFromId(jobStoreFileID))
@@ -572,8 +578,7 @@ class FileJobStore(AbstractJobStore):
         return os.path.join(self.sharedFilesDir, sharedFileName)
 
     @contextmanager
-    def writeSharedFileStream(self, sharedFileName, isProtected=None, encoding=None, errors=None):
-        # the isProtected parameter has no effect on the fileStore
+    def writeSharedFileStream(self, sharedFileName, encoding=None, errors=None):
         self._requireValidSharedFileName(sharedFileName)
         with AtomicFileCreate(self._getSharedFilePath(sharedFileName)) as tmpSharedFilePath:
             with open(tmpSharedFilePath, 'wb' if encoding == None else 'wt', encoding=encoding, errors=None) as f:
@@ -592,7 +597,7 @@ class FileJobStore(AbstractJobStore):
             else:
                 raise
 
-    def writeStatsAndLogging(self, statsAndLoggingString):
+    def write_logs(self, statsAndLoggingString):
         # Temporary files are placed in the stats directory tree
         tempStatsFileName = "stats" + str(uuid.uuid4().hex) + ".new"
         tempStatsFile = os.path.join(self._getArbitraryStatsDir(), tempStatsFileName)
@@ -601,7 +606,7 @@ class FileJobStore(AbstractJobStore):
             f.write(statsAndLoggingString)
         os.rename(tempStatsFile, tempStatsFile[:-4])  # This operation is atomic
 
-    def readStatsAndLogging(self, callback, readAll=False):
+    def read_logs(self, callback, readAll=False):
         numberOfFilesProcessed = 0
         for tempDir in self._statsDirectories():
             for tempFile in os.listdir(tempDir):

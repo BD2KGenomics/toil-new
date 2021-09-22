@@ -19,6 +19,7 @@ import re
 import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -38,7 +39,7 @@ from toil import ApplianceImageNotFound, applianceSelf, toilPackageDirPath
 from toil.lib.iterables import concat
 from toil.lib.memoize import memoize
 from toil.lib.threading import ExceptionalThread, cpu_count
-from toil.provisioners.aws import running_on_ec2
+from toil.lib.aws.util import running_on_ec2
 from toil.version import distVersion
 
 logger = logging.getLogger(__name__)

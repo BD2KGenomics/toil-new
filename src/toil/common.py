@@ -32,7 +32,8 @@ from toil.fileStores import FileID
 from toil.batchSystems.options import (add_all_batchsystem_options,
                                        set_batchsystem_config_defaults,
                                        set_batchsystem_options)
-from toil.lib.aws import zone_to_region
+
+from toil.lib.aws.util import zone_to_region
 from toil.lib.conversions import bytes2human, human2bytes
 from toil.lib.retry import retry
 from toil.provisioners import add_provisioner_options, cluster_factory, parse_node_types
@@ -817,8 +818,7 @@ class Toil:
         self._assertContextManagerUsed()
         self.writePIDFile()
         if self.config.restart:
-            raise ToilRestartException('A Toil workflow can only be started once. Use '
-                                       'Toil.restart() to resume it.')
+            raise ToilRestartException('A Toil workflow can only be started once. Use Toil.restart() to resume it.')
 
         self._batchSystem = self.createBatchSystem(self.config)
         self._setupAutoDeployment(rootJob.getUserScript())
@@ -1433,7 +1433,6 @@ def getDirSizeRecursively(dirPath: str) -> int:
     :param str dirPath: A valid path to a directory or file.
     :return: Total size, in bytes, of the file or directory at dirPath.
     """
-
     # du is often faster than using os.lstat(), sometimes significantly so.
 
     # The call: 'du -s /some/path' should give the number of 512-byte blocks

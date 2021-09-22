@@ -17,12 +17,25 @@ import os
 import re
 import sys
 
+from typing import Optional
+
 pkg_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))  # noqa
 sys.path.insert(0, pkg_root)  # noqa
 
-from src.toil.lib import aws
-from src.toil.lib.aws.utils import delete_iam_role, delete_iam_instance_profile, delete_s3_bucket, delete_sdb_domain
+from src.toil.lib.aws.iam import delete_iam_role, delete_iam_instance_profile
+from src.toil.lib.aws.s3 import delete_bucket
 from src.toil.lib.generatedEC2Lists import regionDict
+from src.toil.lib.retry import retry
+from src.toil.lib.aws.credentials import client, resource
+
+try:
+    from boto.exception import BotoServerError
+    from mypy_boto3_s3 import S3ServiceResource
+    from mypy_boto3_s3.literals import BucketLocationConstraintType
+    from mypy_boto3_s3.service_resource import Bucket
+except ImportError:
+    BotoServerError = None  # type: ignore
+    # AWS/boto extra is not installed
 
 # put us-west-2 first as our default test region; that way anything with a universal region shows there
 regions = ['us-west-2'] + [region for region in regionDict if region != 'us-west-2']
@@ -37,6 +50,14 @@ absolutely_do_not_delete_these_buckets = ['318423852362-cgcloud',  # not sure wh
                                           'toil-datasets',  # test infra; never delete
                                           'toil-no-location-bucket-dont-delete',  # test infra; never delete
                                           'toil-preserve-file-permissions-tests']  # test infra; never delete
+
+
+# this is only here as a clean up tool; we no longer use sdb and this will eventually be removed
+@retry(errors=[BotoServerError])
+def delete_sdb_domain(sdb_domain_name: str, region: Optional[str] = None) -> None:
+    sdb_client = client("sdb", region_name=region)
+    sdb_client.delete_domain(DomainName=sdb_domain_name)
+    print(f'SBD Domain: "{sdb_domain_name}" successfully deleted.')
 
 
 def contains_uuid(string):
@@ -68,11 +89,7 @@ def contains_toil_test_patterns(string):
 
 
 def matches(resource_name):
-    if resource_name.endswith('--files') or resource_name.endswith('--jobs') or resource_name.endswith('_toil'):
-        if contains_toil_test_patterns(resource_name):
-            return resource_name
-
-    if resource_name.startswith('import-export-test-'):
+    if resource_name.endswith('--toil'):
         return resource_name
 
 
@@ -81,7 +98,7 @@ def find_buckets_to_cleanup(include_all, match):
     for region in regions:
         print(f'\n[{region}] Buckets:')
         try:
-            s3_resource = aws.resource('s3', region_name=region)
+            s3_resource = resource('s3', region_name=region)
             buckets_in_region = find_buckets_in_region(s3_resource, include_all, match)
             new_buckets = [b for b in buckets_in_region if b not in buckets]
             print('    ' + '\n    '.join(new_buckets))
@@ -101,7 +118,7 @@ def find_sdb_domains_to_cleanup(include_all, match):
     for region in regions:
         print(f'\n[{region}] SimpleDB Domains:')
         try:
-            sdb_client = aws.client('sdb', region_name=region)
+            sdb_client = client('sdb', region_name=region)
             domains_in_region = find_sdb_domains_in_region(sdb_client, include_all, match)
             new_domains = [b for b in domains_in_region if b not in sdb_domains]
             print('    ' + '\n    '.join(new_domains))
@@ -122,7 +139,7 @@ def find_iam_roles_to_cleanup(include_all, match):
     for region in regions:
         print(f'\n[{region}] IAM Roles:')
         try:
-            iam_client = aws.client('iam', region_name=region)
+            iam_client = client('iam', region_name=region)
             roles_in_region = find_iam_roles_in_region(iam_client, include_all, match)
 
             new_roles = [b for b in roles_in_region if b not in iam_roles]
@@ -139,8 +156,8 @@ def find_instance_profile_names_to_cleanup(include_all, match):
     for region in regions:
         print(f'\n[{region}] IAM Instance Profiles:')
         try:
-            iam_resource = aws.resource('iam', region_name=region)
-            iam_client = aws.client('iam')
+            iam_resource = resource('iam', region_name=region)
+            iam_client = client('iam')
             instance_profiles_in_region = find_instance_profile_names_in_region(iam_client, include_all, match)
 
             new_instance_profiles = [b for b in instance_profiles_in_region if b not in instance_profiles]
@@ -252,7 +269,7 @@ def main(argv):
 
     options = parser.parse_args(argv)
 
-    account_name = aws.client('iam').list_account_aliases()['AccountAliases'][0]
+    account_name = client('iam').list_account_aliases()['AccountAliases'][0]
     print(f'\n\nNow running for AWS account: {account_name}.')
 
     match = [m.strip() for m in options.match.split(',') if m.strip()]
@@ -278,7 +295,8 @@ def main(argv):
                 if response.lower() in ('y', 'yes'):
                     print('\nOkay, now deleting...')
                     for bucket, region in buckets.items():
-                        delete_s3_bucket(bucket, region)
+                        s3_resource = resource('s3', region_name=region)
+                        delete_bucket(s3_resource, bucket)
                     print('S3 Bucket Deletions Successful.')
 
     if not options.skip_sdb:

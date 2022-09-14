@@ -8,10 +8,11 @@ import subprocess
 import sys
 import time
 import typing
+import urllib.parse
+import pytz
+
 from contextlib import closing
 from typing import Iterator, List, Optional, Union
-
-import pytz
 
 logger = logging.getLogger(__name__)
 
@@ -79,10 +80,6 @@ def slow_down(seconds: float) -> float:
 
     return max(seconds, sys.float_info.epsilon)
 
-def printq(msg: str, quiet: bool) -> None:
-    if not quiet:
-        print(msg)
-
 
 def truncExpBackoff() -> Iterator[float]:
     # as recommended here https://forums.aws.amazon.com/thread.jspa?messageID=406788#406788
@@ -135,3 +132,17 @@ def call_command(cmd: List[str], *args: str, input: Optional[str] = None, timeou
         raise CalledProcessErrorStderr(proc.returncode, cmd, output=stdout, stderr=stderr)
     logger.debug("command succeeded: {}: {}".format(" ".join(cmd), stdout.rstrip()))
     return stdout
+
+
+def modify_url(url: str, remove: List[str]) -> str:
+    """
+    Given a valid URL string, split out the params, remove any offending
+    params in 'remove', and return the cleaned URL.
+    """
+    scheme, netloc, path, query, fragment = urllib.parse.urlsplit(url)
+    params = urllib.parse.parse_qs(query)
+    for param_key in remove:
+        if param_key in params:
+            del params[param_key]
+    query = urllib.parse.urlencode(params, doseq=True)
+    return urllib.parse.urlunsplit((scheme, netloc, path, query, fragment))

@@ -91,6 +91,14 @@ def main():
         'src/toil/lib/encryption/conftest.py',
         'src/toil/lib/encryption/__init__.py',
         'src/toil/lib/aws/__init__.py',
+        'src/toil/lib/aws/ec2.py',
+        'src/toil/lib/aws/s3.py',
+        'src/toil/lib/aws/iam.py',
+        'src/toil/lib/aws/config.py',
+        'src/toil/lib/aws/utils.py',
+        'src/toil/lib/aws/util.py',
+        'src/toil/lib/checksum.py',
+        'src/toil/lib/pipes.py',
         'src/toil/server/utils.py',
         'src/toil/utils/toilStats.py'
     ]]

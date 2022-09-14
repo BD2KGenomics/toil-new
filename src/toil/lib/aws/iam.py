@@ -1,18 +1,38 @@
-
+# Copyright (C) 2015-2021 Regents of the University of California
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 import logging
 import boto3
 import fnmatch
 import json
-from toil.lib.aws import zone_to_region
-from toil.provisioners.aws import get_best_aws_zone
-from functools import lru_cache
-from typing import Any, Optional, List, Dict, Set, cast
 
+from functools import lru_cache
+from typing import Optional, List, Dict, cast
 from mypy_boto3_iam import IAMClient
 from mypy_boto3_sts import STSClient
 from mypy_boto3_iam.type_defs import AttachedPolicyTypeDef
 from toil.lib.aws.session import client as get_client
 from collections import defaultdict
+
+from toil.lib.retry import retry
+from toil.lib.aws.session import client, resource
+
+try:
+    from boto.exception import BotoServerError
+except ImportError:
+    # AWS/boto extra is not installed
+    BotoServerError = None  # type: ignore
+
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +71,42 @@ CLUSTER_LAUNCHING_PERMISSIONS = ["iam:CreateRole",
                                   "ec2:TerminateInstances",
                                   ]
 
+
+@retry(errors=[BotoServerError])
+def delete_iam_role(role_name: str, region: Optional[str] = None, display_type='print') -> None:
+    display = print if display_type == 'print' else logger.debug
+    from boto.iam.connection import IAMConnection
+    iam_client = client('iam', region_name=region)
+    iam_resource = resource('iam', region_name=region)
+    boto_iam_connection = IAMConnection()
+    role = iam_resource.Role(role_name)
+    # normal policies
+    for attached_policy in role.attached_policies.all():
+        display(f'Now dissociating policy: {attached_policy.name} from role {role.name}')
+        role.detach_policy(PolicyName=attached_policy.name)
+    # inline policies
+    for attached_policy in role.policies.all():
+        display(f'Deleting inline policy: {attached_policy.name} from role {role.name}')
+        # couldn't find an easy way to remove inline policies with boto3; use boto
+        boto_iam_connection.delete_role_policy(role.name, attached_policy.name)
+    iam_client.delete_role(RoleName=role_name)
+    display(f'Role {role_name} successfully deleted.')
+
+
+@retry(errors=[BotoServerError])
+def delete_iam_instance_profile(instance_profile_name: str, region: Optional[str] = None, display_type='print') -> None:
+    display = print if display_type == 'print' else logger.debug
+    iam_resource = resource('iam', region_name=region)
+    instance_profile = iam_resource.InstanceProfile(instance_profile_name)
+    for role in instance_profile.roles:
+        display(f'Now dissociating role: {role.name} from instance profile {instance_profile_name}')
+        instance_profile.remove_role(RoleName=role.name)
+    instance_profile.delete()
+    display(f'Instance profile "{instance_profile_name}" successfully deleted.')
+
+
 AllowedActionCollection = Dict[str, Dict[str, List[str]]]
+
 
 def init_action_collection() -> AllowedActionCollection:
     '''
@@ -217,10 +272,9 @@ def get_policy_permissions(region: str) -> AllowedActionCollection:
 
     :param zone: AWS zone to connect to
     """
-
     iam: IAMClient = cast(IAMClient, get_client('iam', region))
     sts: STSClient = cast(STSClient, get_client('sts', region))
-    #TODO Condider effect: deny at some point
+    #TODO Consider effect: deny at some point
     allowed_actions: AllowedActionCollection = defaultdict(lambda: {'Action': [], 'NotAction': []})
     try:
         # If successful then we assume we are operating as a user, and grab the associated permissions

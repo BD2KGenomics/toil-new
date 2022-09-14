@@ -20,14 +20,14 @@ from typing import Any, Callable, ContextManager, Dict, Hashable, Iterable, Iter
 from urllib.parse import ParseResult
 
 from toil.lib.aws import session
-from toil.lib.misc import printq
 from toil.lib.retry import (
     retry,
     old_retry,
     get_error_status,
     get_error_code,
     DEFAULT_DELAYS,
-    DEFAULT_TIMEOUT
+    DEFAULT_TIMEOUT,
+    ErrorCondition
 )
 
 if sys.version_info >= (3, 8):
@@ -69,9 +69,8 @@ THROTTLED_ERROR_CODES = [
 ]
 
 @retry(errors=[BotoServerError])
-def delete_iam_role(
-    role_name: str, region: Optional[str] = None, quiet: bool = True
-) -> None:
+def delete_iam_role(role_name: str, region: Optional[str] = None, display_type='print') -> None:
+    display = print if display_type == 'print' else logger.debug
     from boto.iam.connection import IAMConnection
     # TODO: the Boto3 type hints are a bit oversealous here; they want hundreds
     # of overloads of the client-getting methods to exist based on the literal
@@ -88,38 +87,36 @@ def delete_iam_role(
     role = iam_resource.Role(role_name)
     # normal policies
     for attached_policy in role.attached_policies.all():
-        printq(f'Now dissociating policy: {attached_policy.policy_name} from role {role.name}', quiet)
+        display(f'Now dissociating policy: {attached_policy.policy_name} from role {role.name}')
         role.detach_policy(PolicyArn=attached_policy.arn)
     # inline policies
     for inline_policy in role.policies.all():
-        printq(f'Deleting inline policy: {inline_policy.policy_name} from role {role.name}', quiet)
+        display(f'Deleting inline policy: {inline_policy.policy_name} from role {role.name}')
         # couldn't find an easy way to remove inline policies with boto3; use boto
         boto_iam_connection.delete_role_policy(role.name, inline_policy.policy_name)
     iam_client.delete_role(RoleName=role_name)
-    printq(f'Role {role_name} successfully deleted.', quiet)
+    display(f'Role {role_name} successfully deleted.')
 
 
 @retry(errors=[BotoServerError])
-def delete_iam_instance_profile(
-    instance_profile_name: str, region: Optional[str] = None, quiet: bool = True
-) -> None:
+def delete_iam_instance_profile(instance_profile_name: str, region: Optional[str] = None, display_type='print') -> None:
+    display = print if display_type == 'print' else logger.debug
     iam_resource = cast(IAMServiceResource, session.resource("iam", region_name=region))
     instance_profile = iam_resource.InstanceProfile(instance_profile_name)
     if instance_profile.roles is not None:
         for role in instance_profile.roles:
-            printq(f'Now dissociating role: {role.name} from instance profile {instance_profile_name}', quiet)
+            display(f'Now dissociating role: {role.name} from instance profile {instance_profile_name}')
             instance_profile.remove_role(RoleName=role.name)
     instance_profile.delete()
-    printq(f'Instance profile "{instance_profile_name}" successfully deleted.', quiet)
+    display(f'Instance profile "{instance_profile_name}" successfully deleted.')
 
 
 @retry(errors=[BotoServerError])
-def delete_sdb_domain(
-    sdb_domain_name: str, region: Optional[str] = None, quiet: bool = True
-) -> None:
+def delete_sdb_domain(sdb_domain_name: str, region: Optional[str] = None, display_type='print') -> None:
+    display = print if display_type == 'print' else logger.debug
     sdb_client = cast(SimpleDBClient, session.client("sdb", region_name=region))
     sdb_client.delete_domain(DomainName=sdb_domain_name)
-    printq(f'SBD Domain: "{sdb_domain_name}" successfully deleted.', quiet)
+    display(f'SBD Domain: "{sdb_domain_name}" successfully deleted.')
 
 
 def connection_reset(e: Exception) -> bool:
@@ -146,22 +143,32 @@ def retryable_s3_errors(e: Exception) -> bool:
             or (isinstance(e, ClientError) and e.response.get('ResponseMetadata', {}).get('HTTPStatusCode') in (404, 429, 500, 502, 503, 504)))
 
 
-def retry_s3(delays: Iterable[float] = DEFAULT_DELAYS, timeout: float = DEFAULT_TIMEOUT, predicate: Callable[[Exception], bool] = retryable_s3_errors) -> Iterator[ContextManager[None]]:
+def retry_s3(delays: Iterable[float] = (0, 1, 1, 4, 16, 64),
+             timeout: float = 300,
+             predicate: Callable[[Exception], bool] = retryable_s3_errors) -> Iterator[ContextManager[None]]:
     """
     Retry iterator of context managers specifically for S3 operations.
     """
     return old_retry(delays=delays, timeout=timeout, predicate=predicate)
 
-@retry(errors=[BotoServerError])
-def delete_s3_bucket(
-    s3_resource: "S3ServiceResource",
-    bucket: str,
-    quiet: bool = True
-) -> None:
-    """
-    Delete the given S3 bucket.
-    """
-    printq(f'Deleting s3 bucket: {bucket}', quiet)
+
+@retry(
+    errors=[
+        ErrorCondition(
+            error=BotoServerError,
+            error_codes=[404, 429, 500, 502, 503, 504]),
+        ErrorCondition(
+            error=ClientError,
+            error_message_must_include='BucketNotEmpty'),
+        ErrorCondition(
+            error=ClientError,
+            error_codes=[404, 429, 500, 502, 503, 504]
+        ),
+    ]
+)
+def delete_s3_bucket(bucket: str, region: Optional[str], display_type='log') -> None:
+    display = print if display_type == 'print' else logger.debug
+    display(f'Deleting s3 bucket: {bucket}')
 
     paginator = s3_resource.meta.client.get_paginator('list_object_versions')
     try:
@@ -174,12 +181,12 @@ def delete_s3_bucket(
             to_delete: List[Dict[str, Any]] = cast(List[Dict[str, Any]], response.get('Versions', [])) + \
                                               cast(List[Dict[str, Any]], response.get('DeleteMarkers', []))
             for entry in to_delete:
-                printq(f"    Deleting {entry['Key']} version {entry['VersionId']}", quiet)
+                display(f"    Deleting {entry['Key']} version {entry['VersionId']}")
                 s3_resource.meta.client.delete_object(Bucket=bucket, Key=entry['Key'], VersionId=entry['VersionId'])
         s3_resource.Bucket(bucket).delete()
-        printq(f'\n * Deleted s3 bucket successfully: {bucket}\n\n', quiet)
+        display(f'\n * Deleted s3 bucket successfully: {bucket}\n\n')
     except s3_resource.meta.client.exceptions.NoSuchBucket:
-        printq(f'\n * S3 bucket no longer exists: {bucket}\n\n', quiet)
+        display(f'\n * S3 bucket no longer exists: {bucket}\n\n')
 
 
 def create_s3_bucket(

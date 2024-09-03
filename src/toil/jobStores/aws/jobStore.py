@@ -37,10 +37,17 @@ from typing import (
 from urllib.parse import ParseResult, parse_qs, urlencode, urlsplit, urlunsplit
 
 from botocore.exceptions import ClientError
+from mypy_boto3_s3.service_resource import Bucket
+from mypy_boto3_sdb import SimpleDBClient
+from mypy_boto3_sdb.type_defs import ReplaceableItemTypeDef, ReplaceableAttributeTypeDef, SelectResultTypeDef, ItemTypeDef, AttributeTypeDef, DeletableItemTypeDef, UpdateConditionTypeDef
 
+from toil.lib.aws.utils import flatten_tags, enable_public_objects
 import toil.lib.encryption as encryption
 from toil.fileStores import FileID
 from toil.job import Job, JobDescription
+from toil.lib.aws import tags_from_env
+from toil.lib.aws.s3 import create_s3_bucket, delete_s3_bucket
+
 from toil.jobStores.abstractJobStore import (
     AbstractJobStore,
     ConcurrentFileModificationException,
@@ -62,12 +69,10 @@ from toil.jobStores.aws.utils import (
     uploadFromPath,
 )
 from toil.jobStores.utils import ReadablePipe, ReadableTransformingPipe, WritablePipe
-from toil.lib.aws import build_tag_dict_from_env
 from toil.lib.aws.session import establish_boto3_session
 from toil.lib.aws.utils import (
     NoBucketLocationError,
     boto3_pager,
-    create_s3_bucket,
     enable_public_objects,
     flatten_tags,
     get_bucket_region,
@@ -77,6 +82,7 @@ from toil.lib.aws.utils import (
     retry_s3,
     retryable_s3_errors,
 )
+
 from toil.lib.compatibility import compat_bytes
 from toil.lib.ec2nodes import EC2Regions
 from toil.lib.exceptions import panic
@@ -834,9 +840,7 @@ class AWSJobStore(AbstractJobStore):
                         bucketExisted = False
                         logger.debug("Bucket '%s' does not exist.", bucket_name)
                         if create:
-                            bucket = create_s3_bucket(
-                                self.s3_resource, bucket_name, self.region
-                            )
+                            bucket = create_s3_bucket(self.s3_resource, bucket_name, self.region)
                             # Wait until the bucket exists before checking the region and adding tags
                             bucket.wait_until_exists()
 
@@ -845,11 +849,10 @@ class AWSJobStore(AbstractJobStore):
                             # produce an S3ResponseError with code
                             # NoSuchBucket. We let that kick us back up to the
                             # main retry loop.
-                            assert (
-                                    get_bucket_region(bucket_name) == self.region
+                            assert (get_bucket_region(bucket_name) == self.region
                             ), f"bucket_name: {bucket_name}, {get_bucket_region(bucket_name)} != {self.region}"
 
-                            tags = build_tag_dict_from_env()
+                            tags = tags_from_env()
 
                             if tags:
                                 flat_tags = flatten_tags(tags)
@@ -1742,7 +1745,7 @@ class AWSJobStore(AbstractJobStore):
         # TODO: Add other failure cases to be ignored here.
         self._registered = None
         if self.files_bucket is not None:
-            self._delete_bucket(self.files_bucket)
+            delete_s3_bucket(s3_resource=s3_boto3_resource, bucket_name=self.files_bucket.name)
             self.files_bucket = None
         for name in 'files_domain_name', 'jobs_domain_name':
             domainName = getattr(self, name)
@@ -1758,30 +1761,6 @@ class AWSJobStore(AbstractJobStore):
                     self.db.delete_domain(DomainName=domainName)
                 except ClientError as e:
                     if not no_such_sdb_domain(e):
-                        raise
-
-    @staticmethod
-    def _delete_bucket(bucket):
-        """
-        :param bucket: S3.Bucket
-        """
-        for attempt in retry_s3():
-            with attempt:
-                try:
-                    uploads = s3_boto3_client.list_multipart_uploads(Bucket=bucket.name).get('Uploads')
-                    if uploads:
-                        for u in uploads:
-                            s3_boto3_client.abort_multipart_upload(Bucket=bucket.name,
-                                                                   Key=u["Key"],
-                                                                   UploadId=u["UploadId"])
-
-                    bucket.objects.all().delete()
-                    bucket.object_versions.delete()
-                    bucket.delete()
-                except s3_boto3_client.exceptions.NoSuchBucket:
-                    pass
-                except ClientError as e:
-                    if get_error_status(e) != 404:
                         raise
 
 
